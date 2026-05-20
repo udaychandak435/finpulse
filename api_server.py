@@ -54,7 +54,7 @@ app.add_middleware(
 # ── Gemini API Configuration ────────────────────────────────────────────────
 # Uses the GEMINI_API_KEY environment variable (set before running the server)
 # Example:  set GEMINI_API_KEY=AIzaSy...  (Windows)
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "AIzaSyBHaGiJJIggWugFHMkagxDA84lgxKhWg7A")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 genai.configure(api_key=GEMINI_API_KEY)
 
 
