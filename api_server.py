@@ -16,6 +16,13 @@ import pandas as pd
 import threading
 import traceback
 import torch
+
+# ── News Sentiment Analyzer imports ──────────────────────────────────────────
+import os
+import re
+import urllib.parse
+import xml.etree.ElementTree as ET
+import google.generativeai as genai
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from data_loader            import fetch_all_stocks_sequential
@@ -43,6 +50,12 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
 )
+
+# ── Gemini API Configuration ────────────────────────────────────────────────
+# Uses the GEMINI_API_KEY environment variable (set before running the server)
+# Example:  set GEMINI_API_KEY=AIzaSy...  (Windows)
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "AIzaSyBHaGiJJIggWugFHMkagxDA84lgxKhWg7A")
+genai.configure(api_key=GEMINI_API_KEY)
 
 
 # ── Request / Response models ────────────────────────────────────────────────
@@ -248,7 +261,7 @@ def run_analysis(req: AnalysisRequest):
         except Exception as e:
             with results_lock:
                 stock_results[ticker] = {"error": str(e)}
-            print(f"[api] ✗ {ticker}: {e}\n{traceback.format_exc()}")
+            print(f"[api] [FAIL] {ticker}: {e}\n{traceback.format_exc()}")
 
     with ThreadPoolExecutor(max_workers=len(valid_tickers)) as executor:
         futures = {
@@ -408,3 +421,148 @@ def run_analysis(req: AnalysisRequest):
     }
 
     return _serialise(response)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NEWS SENTIMENT ANALYZER ENDPOINT
+# ─────────────────────────────────────────────────────────────────────────────
+
+class SentimentRequest(BaseModel):
+    stock_name: str          # e.g. "Reliance", "TCS", "Infosys"
+
+
+def fetch_google_news_headlines(stock_name: str, count: int = 5) -> list[str]:
+    """
+    Fetch recent news headlines from Google News RSS feed.
+    
+    HOW IT WORKS:
+    - Google News provides a free RSS (XML) feed at /rss/search?q=...
+    - We URL-encode the stock name + "stock news" as the search query
+    - Parse the returned XML → each <item><title> is one headline
+    - Return up to `count` headlines as a list of strings
+    
+    WHY RSS:
+    - No API key required (completely free)
+    - Returns real-time headlines from multiple news sources
+    - Simple XML parsing, no complex authentication
+    """
+    import requests as req_lib     # using alias to avoid shadowing
+
+    query = urllib.parse.quote(f"{stock_name} stock news")
+    url   = f"https://news.google.com/rss/search?q={query}&hl=en-IN&gl=IN&ceid=IN:en"
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                      "AppleWebKit/537.36 (KHTML, like Gecko) "
+                      "Chrome/120.0.0.0 Safari/537.36"
+    }
+
+    resp = req_lib.get(url, headers=headers, timeout=10)
+    resp.raise_for_status()
+
+    # Parse XML → extract <item> → <title>
+    root  = ET.fromstring(resp.content)
+    items = root.findall(".//item")
+
+    headlines = []
+    for item in items[:count]:
+        title = item.find("title")
+        if title is not None and title.text:
+            headlines.append(title.text.strip())
+
+    return headlines
+
+
+@app.post("/sentiment")
+def analyse_sentiment(req: SentimentRequest):
+    """
+    News Sentiment Analyzer endpoint.
+    
+    FLOW:
+    1. Receive stock name from frontend  (e.g. "Reliance")
+    2. Fetch 5 recent headlines from Google News RSS
+    3. Build a structured prompt asking Gemini for sentiment + summary
+    4. Send to Gemini 1.5 Flash (free tier) via google-generativeai SDK
+    5. Parse the JSON response from Gemini
+    6. Return {sentiment, summary, headlines} to frontend
+    
+    WHY GEMINI:
+    - Free tier (gemini-1.5-flash) = no cost for students/demos
+    - Fast inference (~1-2 seconds)
+    - Good at structured output (JSON) when prompted correctly
+    """
+    stock_name = req.stock_name.strip()
+    if not stock_name:
+        raise HTTPException(400, "Stock name cannot be empty.")
+
+    # ── Step 1: Fetch headlines ──────────────────────────────────────────────
+    try:
+        headlines = fetch_google_news_headlines(stock_name, count=5)
+    except Exception as e:
+        print(f"[sentiment] RSS fetch failed: {e}")
+        headlines = []
+
+    if not headlines:
+        # If no headlines found, return a neutral fallback
+        return {
+            "stock_name": stock_name,
+            "sentiment":  "Neutral",
+            "summary":    f"No recent news headlines found for {stock_name}. "
+                          f"Unable to determine market sentiment at this time.",
+            "headlines":  [],
+        }
+
+    # ── Step 2: Build the Gemini prompt ──────────────────────────────────────
+    # WHY THIS PROMPT STRUCTURE:
+    # - We list headlines clearly so Gemini can read each one
+    # - We ask for STRICT JSON output so we can parse it reliably
+    # - We define exactly what Bullish/Bearish/Neutral means
+    headlines_text = "\n".join(f"{i+1}. {h}" for i, h in enumerate(headlines))
+
+    prompt = f"""You are a financial news sentiment analyzer for the Indian stock market.
+
+Analyze these recent news headlines about "{stock_name}" and determine the overall market sentiment.
+
+Headlines:
+{headlines_text}
+
+Rules:
+- "Bullish" = positive outlook, stock likely to go up (good earnings, expansion, upgrades)
+- "Bearish" = negative outlook, stock likely to go down (losses, downgrades, regulatory issues)
+- "Neutral" = mixed or no clear direction
+
+Respond with ONLY a valid JSON object in this exact format (no markdown, no extra text):
+{{"sentiment": "Bullish" or "Bearish" or "Neutral", "summary": "A 2-line summary explaining why"}}"""
+
+    # ── Step 3: Call Gemini API ───────────────────────────────────────────────
+    try:
+        model    = genai.GenerativeModel("gemini-1.5-flash-latest")
+        response = model.generate_content(prompt)
+        raw_text = response.text.strip()
+
+        # Clean up response — Gemini sometimes wraps in ```json ... ```
+        raw_text = re.sub(r"^```json\s*", "", raw_text)
+        raw_text = re.sub(r"\s*```$", "", raw_text)
+
+        import json
+        result = json.loads(raw_text)
+
+        sentiment = result.get("sentiment", "Neutral")
+        summary   = result.get("summary", "Unable to generate summary.")
+
+        # Validate sentiment value
+        if sentiment not in ("Bullish", "Bearish", "Neutral"):
+            sentiment = "Neutral"
+
+    except Exception as e:
+        print(f"[sentiment] Gemini API error: {e}\n{traceback.format_exc()}")
+        sentiment = "Neutral"
+        summary   = f"Sentiment analysis encountered an error: {str(e)}"
+
+    # ── Step 4: Return response ──────────────────────────────────────────────
+    return {
+        "stock_name": stock_name,
+        "sentiment":  sentiment,
+        "summary":    summary,
+        "headlines":  headlines,
+    }

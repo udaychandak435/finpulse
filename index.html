@@ -285,6 +285,117 @@
     transform: translateY(100px); opacity: 0; transition: all 0.3s;
   }
   #toast.show { transform: translateY(0); opacity: 1; }
+
+  /* ── SENTIMENT ANALYZER ── */
+  .sentiment-panel {
+    background: linear-gradient(135deg, rgba(10,22,40,0.95) 0%, rgba(15,31,61,0.9) 100%);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 24px;
+    margin-bottom: 1.5rem;
+    box-shadow: var(--glow), 0 4px 20px rgba(0,0,0,0.3);
+    position: relative;
+    overflow: hidden;
+  }
+  .sentiment-panel::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, var(--teal), var(--gold), var(--red));
+  }
+  .sentiment-header {
+    display: flex; align-items: center; gap: 10px;
+    font-family: 'Bebas Neue', sans-serif; font-size: 1rem;
+    letter-spacing: 2px; color: var(--gold); margin-bottom: 16px;
+  }
+  .sentiment-header-icon {
+    width: 28px; height: 28px; border-radius: 8px;
+    background: rgba(201,168,76,0.15); display: flex;
+    align-items: center; justify-content: center; font-size: 1rem;
+  }
+  .sentiment-input-row {
+    display: flex; gap: 12px; margin-bottom: 16px;
+  }
+  .sentiment-input {
+    flex: 1; padding: 12px 16px; border-radius: 10px;
+    border: 1px solid var(--border); background: var(--navy3);
+    color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 0.9rem;
+    outline: none; transition: border-color 0.2s;
+  }
+  .sentiment-input::placeholder { color: var(--text3); }
+  .sentiment-input:focus { border-color: var(--gold); }
+  .sentiment-btn {
+    padding: 12px 24px; border-radius: 10px; border: none; cursor: pointer;
+    background: linear-gradient(135deg, var(--gold) 0%, #a0782a 100%);
+    color: var(--navy); font-family: 'Bebas Neue', sans-serif;
+    font-size: 0.9rem; letter-spacing: 2px;
+    transition: all 0.2s; white-space: nowrap;
+  }
+  .sentiment-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(201,168,76,0.3); }
+  .sentiment-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+  .sentiment-result {
+    display: none; animation: fadeUp 0.4s ease;
+  }
+  .sentiment-result.show { display: block; }
+  .sentiment-badge-row {
+    display: flex; align-items: center; gap: 14px; margin-bottom: 14px;
+  }
+  .sentiment-badge {
+    padding: 6px 18px; border-radius: 20px;
+    font-family: 'Bebas Neue', sans-serif; font-size: 1rem;
+    letter-spacing: 2px; font-weight: 700;
+  }
+  .sentiment-bullish {
+    background: rgba(0,212,170,0.15); color: var(--teal);
+    border: 1px solid rgba(0,212,170,0.3);
+    text-shadow: 0 0 12px rgba(0,212,170,0.3);
+  }
+  .sentiment-bearish {
+    background: rgba(255,77,106,0.15); color: var(--red);
+    border: 1px solid rgba(255,77,106,0.3);
+    text-shadow: 0 0 12px rgba(255,77,106,0.3);
+  }
+  .sentiment-neutral {
+    background: rgba(201,168,76,0.15); color: var(--gold2);
+    border: 1px solid rgba(201,168,76,0.3);
+    text-shadow: 0 0 12px rgba(201,168,76,0.3);
+  }
+  .sentiment-stock-name {
+    font-family: 'DM Mono', monospace; font-size: 0.9rem;
+    color: var(--text2); letter-spacing: 0.5px;
+  }
+  .sentiment-summary {
+    background: var(--navy3); border-radius: 10px;
+    padding: 14px 18px; margin-bottom: 14px;
+    font-size: 0.85rem; line-height: 1.6; color: var(--text);
+    border-left: 3px solid var(--gold);
+  }
+  .sentiment-headlines {
+    list-style: none; padding: 0;
+  }
+  .sentiment-headlines li {
+    padding: 10px 14px; margin-bottom: 6px;
+    background: var(--navy2); border-radius: 8px;
+    font-size: 0.8rem; color: var(--text2);
+    border-left: 2px solid var(--navy4);
+    transition: all 0.2s;
+  }
+  .sentiment-headlines li:hover {
+    border-left-color: var(--gold); color: var(--text);
+    background: var(--navy3);
+  }
+  .sentiment-headlines li .hl-num {
+    color: var(--gold); font-family: 'DM Mono', monospace;
+    font-weight: 600; margin-right: 8px;
+  }
+  .sentiment-loading {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 0.82rem; color: var(--text2); padding: 12px 0;
+  }
+  .sentiment-spinner {
+    width: 18px; height: 18px; border-radius: 50%;
+    border: 2px solid var(--navy4); border-top-color: var(--gold);
+    animation: spin 0.8s linear infinite;
+  }
 </style>
 </head>
 <body>
@@ -365,6 +476,25 @@
   <div class="tab-panel" id="tab-predictions">
     <div class="section-title">Next-Day Predicted OHLC</div>
     <div class="ticker-cards" id="ticker-cards"></div>
+
+    <!-- ═══ NEWS SENTIMENT ANALYZER ═══ -->
+    <div class="sentiment-panel" id="sentiment-panel">
+      <div class="sentiment-header">
+        <div class="sentiment-header-icon">📰</div>
+        NEWS SENTIMENT ANALYZER
+      </div>
+      <div class="sentiment-input-row">
+        <input type="text" class="sentiment-input" id="sentiment-stock-input"
+               placeholder="Enter stock name (e.g. Reliance, TCS, Infosys)"
+               onkeydown="if(event.key==='Enter') analyzeSentiment()" />
+        <button class="sentiment-btn" id="sentiment-btn" onclick="analyzeSentiment()">🔍 ANALYZE</button>
+      </div>
+      <div id="sentiment-loading" class="sentiment-loading" style="display:none">
+        <div class="sentiment-spinner"></div>
+        Fetching news & analyzing sentiment...
+      </div>
+      <div class="sentiment-result" id="sentiment-result"></div>
+    </div>
 
     <div class="section-title">Candlestick Charts</div>
     <div class="stock-tabs" id="candle-stock-tabs"></div>
@@ -944,6 +1074,98 @@ function goldPalette(n) {
 function exportPDF() {
   showToast('Preparing PDF... please wait');
   setTimeout(() => window.print(), 500);
+}
+
+// ════════════════════════════════════════════ NEWS SENTIMENT ANALYZER
+/**
+ * analyzeSentiment()
+ * ------------------
+ * Called when user clicks "ANALYZE" or presses Enter.
+ *
+ * HOW IT WORKS:
+ * 1. Reads the stock name from the input field
+ * 2. Shows a loading spinner
+ * 3. Sends a POST request to /sentiment on the FastAPI backend
+ * 4. Backend fetches Google News RSS → sends to Gemini → returns JSON
+ * 5. We render: sentiment badge (Bullish/Bearish/Neutral) + summary + headlines
+ *
+ * WHY SEPARATE FROM /analyse:
+ * - The main /analyse endpoint does heavy ML (5-10 min)
+ * - Sentiment analysis is lightweight (~2 sec), so it has its own endpoint
+ * - Users can check sentiment without running the full prediction pipeline
+ */
+async function analyzeSentiment() {
+  const input = document.getElementById('sentiment-stock-input');
+  const stockName = input.value.trim();
+  if (!stockName) {
+    showToast('Please enter a stock name');
+    input.focus();
+    return;
+  }
+
+  const btn     = document.getElementById('sentiment-btn');
+  const loading = document.getElementById('sentiment-loading');
+  const result  = document.getElementById('sentiment-result');
+
+  // Show loading state
+  btn.disabled = true;
+  loading.style.display = 'flex';
+  result.classList.remove('show');
+  result.innerHTML = '';
+
+  try {
+    const resp = await fetch(API + '/sentiment', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stock_name: stockName })
+    });
+
+    if (!resp.ok) {
+      const errData = await resp.json().catch(() => null);
+      throw new Error(errData?.detail || `Server error ${resp.status}`);
+    }
+
+    const data = await resp.json();
+
+    // Determine badge class based on sentiment
+    const sentimentLower = data.sentiment.toLowerCase();
+    const badgeClass = sentimentLower === 'bullish' ? 'sentiment-bullish'
+                     : sentimentLower === 'bearish' ? 'sentiment-bearish'
+                     : 'sentiment-neutral';
+    const sentimentIcon = sentimentLower === 'bullish' ? '📈'
+                        : sentimentLower === 'bearish' ? '📉'
+                        : '➖';
+
+    // Build headlines HTML
+    const headlinesHtml = data.headlines && data.headlines.length > 0
+      ? `<div style="font-size:0.7rem;color:var(--text3);letter-spacing:1px;text-transform:uppercase;margin-bottom:8px;margin-top:4px;">SOURCE HEADLINES</div>
+         <ul class="sentiment-headlines">
+           ${data.headlines.map((h, i) => `<li><span class="hl-num">${i+1}.</span>${h}</li>`).join('')}
+         </ul>`
+      : '';
+
+    // Render the result
+    result.innerHTML = `
+      <div class="sentiment-badge-row">
+        <span class="sentiment-badge ${badgeClass}">${sentimentIcon} ${data.sentiment.toUpperCase()}</span>
+        <span class="sentiment-stock-name">${data.stock_name}</span>
+      </div>
+      <div class="sentiment-summary">${data.summary}</div>
+      ${headlinesHtml}
+    `;
+    result.classList.add('show');
+
+  } catch (e) {
+    result.innerHTML = `
+      <div style="color:var(--red);font-size:0.85rem;padding:12px 0;">
+        ⚠ Error: ${e.message}
+      </div>`;
+    result.classList.add('show');
+  }
+
+  // Reset loading state
+  loading.style.display = 'none';
+  btn.disabled = false;
 }
 </script>
 </body>

@@ -511,14 +511,14 @@ def fetch_all_stocks_sequential(tickers: list, years: int = 3) -> dict:
 
     print("[data_loader] Fetching price data sequentially to prevent race conditions...")
     for ticker in tickers:
-        print(f"[data_loader]  → Downloading {ticker}...")
+        print(f"[data_loader]  -> Downloading {ticker}...")
         price_data   = fetch_stock_data(ticker, 1)
         fundamentals = fetch_fundamental_data(ticker)
         results[ticker] = {
             "price_data":   price_data,
             "fundamentals": fundamentals,
         }
-        print(f"[data_loader]  ✓ {ticker}: {len(price_data)} rows fetched")
+        print(f"[data_loader]  [OK] {ticker}: {len(price_data)} rows fetched")
 
     print(f"[data_loader] All {len(tickers)} stocks fetched. Ready for parallel ML processing.")
     return results
